@@ -1,0 +1,6 @@
+[package]
+name = "huffman-compression"
+version = "0.1.0"
+authors = ["Nick Johs <nick@pcp256571pcs.unl.edu>"]
+
+[dependencies]
