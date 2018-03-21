@@ -2,7 +2,7 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 
-mod bitwise;
+// mod bitwise;
 
 struct Elem {
   count: u32,
@@ -26,7 +26,7 @@ fn main() {
     }
   };
 
-  let f = match File::create(s) {
+  let f = match File::open(s) {
     Ok(f) => f,
     Err(_) => {
       println!("Error: file not found");
