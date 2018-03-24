@@ -1,11 +1,9 @@
-use std::fs;
 use std::io::Write;
 use std::boxed::Box;
-use std::rc;
 
 pub struct Writer {
   pub buffer: u8,
-  index: u8,
+  index: i8,
   output: Box<Write>
 }
 
@@ -19,19 +17,19 @@ impl Writer {
   }
 
   pub fn write(&mut self, word: u8, len: u8) {
-    if self.index - len >= 0 {
-      self.update_buffer(self.buffer, self.index, word, len);
+    if self.index - len as i8 >= 0 {
+      update_buffer(&mut self.buffer, &mut self.index, word, len);
       if self.index == 0 {
-        self.output.write(&[self.buffer]);
+        self.output.write(&[self.buffer]).unwrap();
         self.index = 8;
       }
     } else {
       let upper_len = 8 - self.index;
       let upper_word = word >> (upper_len);
-      update_buffer(self.buffer, self.index, upper_word, upper_len);
-      self.output.write(&[self.buffer]);
+      update_buffer(&mut self.buffer, &mut self.index, upper_word, upper_len as u8);
+      self.output.write(&[self.buffer]).unwrap();
       self.index = 8;
-      update_buffer(self.buffer, self.index, word, len - upper_len);
+      update_buffer(&mut self.buffer, &mut self.index, word, len - upper_len as u8);
     }
   }
 }
@@ -39,22 +37,28 @@ impl Writer {
 #[test]
 fn test_write() {
   let mut w = Writer::new(Box::new(Vec::new()));
-  w.write(2,2);
-  // w.write(2,6);
-  assert_eq!(w.buffer, 130);
+  w.write(1,2);
+  assert_eq!(w.buffer, 64);
+  assert_eq!(w.index, 6);
+  w.write(1, 7);
+  assert_eq!(w.index, 3);
+  assert_eq!(w.buffer, 8);
 }
 
 #[test]
 fn test_update_buffer() {
-  assert_eq!(update_buffer(192, 6, 3, 2), 240);
+  let mut index = 6;
+  let mut buffer = 192;
+  update_buffer(&mut buffer, &mut index, 3, 2);
+  assert_eq!(buffer, 240);
+  assert_eq!(index, 4);
 }
 
-fn update_buffer(mut buffer: u8, mut index: u8, input: u8, len: u8) -> u8 {
-  buffer &= gen_buffer_mask(index);
+fn update_buffer(buffer: &mut u8, index: &mut i8, input: u8, len: u8) {
+  *buffer &= gen_buffer_mask(*index);
   let input = input & gen_input_mask(len);
-  index -= len;
-  buffer |= (input << index);
-  buffer
+  *index -= len as i8;
+  *buffer |= input << *index;
 }
 
 #[test]
@@ -78,7 +82,7 @@ fn test_gen_buffer_mask() {
   assert_eq!(gen_buffer_mask(4), 240);
 }
 
-fn gen_buffer_mask(index: u8) -> u8 {
+fn gen_buffer_mask(index: i8) -> u8 {
   let mut mask = 0;
   for i in index..8 {
     mask |= 1 << i;
