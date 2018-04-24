@@ -2,6 +2,8 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 
+mod bitwise;
+
 struct Elem {
   count: u32,
   character: char,
@@ -104,7 +106,7 @@ fn find_lengths(data: &mut [usize]) {
   while i >= 0 {
     let total = depth << 1;
     let found = total as isize - data.iter().filter(|&&e| e == depth).collect::<Vec<_>>().len() as isize;
-    for j in (0..found) {
+    for j in 0..found {
       if j > i {
         break;
       }
