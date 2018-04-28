@@ -1,10 +1,12 @@
 use std::io::Write;
 use std::io::Read;
+use std::io::Bytes;
 use std::boxed::Box;
+use std::mem::size_of;
 
 pub struct Writer {
-  pub buffer: u8,
-  index: i8,
+  pub buffer: usize,
+  index: isize,
   output: Box<Write>
 }
 
@@ -12,70 +14,99 @@ impl Writer {
   pub fn new(f: Box<Write>) -> Writer {
     Writer {
       output: f,
-      index: 8,
+      index: size_of::<usize>() as isize,
       buffer: 0
     }
   }
 
-  pub fn write(&mut self, word: u8, len: u8) {
-    if self.index - len as i8 >= 0 {
-      update_buffer(&mut self.buffer, &mut self.index, word, len);
-      if self.index == 0 {
-        self.output.write(&[self.buffer]).unwrap();
-        self.index = 8;
-      }
+  pub fn write(&mut self, word: usize, len: usize) {
+    if self.index - len as isize > 0 {
+      self.update_buffer(word, len);
     } else {
-      let upper_len = 8 - self.index;
-      let upper_word = word >> (upper_len);
-      let l = self.index as u8;
-      update_buffer(&mut self.buffer, &mut self.index, upper_word, l);
-      self.output.write(&[self.buffer]).unwrap();
-      self.index = 8;
-      update_buffer(&mut self.buffer, &mut self.index, word, len - l);
+      let low_len = len - self.index as usize;
+      let upper_word = word >> low_len;
+      let l = self.index as usize;
+      self.update_buffer(upper_word, l);
+      self.write_to_file();
+      self.update_buffer(word, low_len);
     }
   }
 
   pub fn flush(&mut self) {
-    let i = self.index as u8;
-    self.write(0, i);
+    let i = self.index;
+    self.write(0, i as usize);
   }
+
+  fn update_buffer(&mut self, input: usize, len: usize) {
+    if len == 0 {
+      return
+    }
+
+    self.index -= len as isize; 
+    self.buffer |= (input & gen_input_mask(len)) << self.index;
+  }
+
+  fn write_to_file(&mut self) {
+    let mut temp = [0u8; 64];
+    for i in 0..size_of::<usize>() {
+      let mask = 0xff << (i * 8);
+      temp[i] = ((mask & self.buffer) >> (i * 8)) as u8;
+    }
+    self.output.write(&temp).unwrap();
+    self.buffer = 0;
+    self.index = (size_of::<usize>() * 8) as isize;
+  }
+
 }
 
 pub struct Reader {
-  pub buffer: u8,
-  index: i8,
-  input: Box<Read>
+  pub buffer: usize,
+  index: isize,
+  input: Bytes<Box<Read>>,
 }
 
 impl Reader{
   pub fn new(f: Box<Read>) -> Reader {
     Reader {
-      input: f,
+      input: f.bytes(),
       index: 0,
-      buffer: 0
+      buffer: 0,
     }
   }
 
-  pub fn read(&mut self, len: u8) -> u8 {
+  pub fn read(&mut self, len: usize) -> Result<usize, ()> {
     let mut result;
-    if self.index - len as i8 >= 0 {
-      let mask = gen_input_mask(self.index as u8);
-      result = (self.buffer & mask) >> (self.index - len as i8);
-      self.index -= len as i8;
-    } else if self.index == 0 {
-      self.input.read_exact(&mut[self.buffer]);
-      result = self.buffer >> (8 - len);
-      self.index = 8 - len as i8;
+    if self.index - len as isize >= 0 {
+      let mask = gen_input_mask(self.index as usize);
+      result = (self.buffer & mask) >> (self.index - len as isize);
+      self.index -= len as isize;
     } else {
-      let low_len = len - self.index as u8;
-      let mask = gen_input_mask(self.index as u8);
-      result = (self.buffer & mask) << (len - self.index as u8);
-      self.input.read_exact(&mut[self.buffer]);
-      result |= (self.buffer & mask) >> (8 - low_len);
-      self.index = 8 - low_len as i8;
+      let low_len = len - self.index as usize;
+      let mask = gen_input_mask(self.index as usize);
+      result = (self.buffer & mask) << (len - self.index as usize);
+      match self.read_byte() {
+        Err(_) => return Err(()),
+        Ok(_) => {}
+      };
+      result |= self.buffer >> (size_of::<usize>() - low_len);
+      self.index = size_of::<usize>() as isize - low_len as isize;
     }
 
-    result
+    Ok(result)
+  }
+
+  fn read_byte(&mut self) -> Result<(), ()> {
+    self.buffer = 0;
+    for i in (0..size_of::<usize>()).rev() {
+      match self.input.next() {
+        Some(x) => {
+          self.buffer |= (x.unwrap() as usize) << (i * 8)
+        },
+        None => return Err(())
+      }
+    }
+
+    Ok(())
   }
 }
 
@@ -99,23 +130,17 @@ fn test_update_buffer() {
   assert_eq!(index, 4);
 }
 
-fn update_buffer(buffer: &mut u8, index: &mut i8, input: u8, len: u8) {
-  *buffer &= gen_buffer_mask(*index);
-  let input = input & gen_input_mask(len);
-  *index -= len as i8;
-  let (t, _) = input.overflowing_shl(*index as u32);
-  *buffer |= t;
-}
 
 #[test]
 fn test_gen_input_mask() {
+  assert_eq!(gen_input_mask(0), 0);
   assert_eq!(gen_input_mask(1), 1);
   assert_eq!(gen_input_mask(4), 15);
   assert_eq!(gen_input_mask(5), 31);
   assert_eq!(gen_input_mask(8), 255);
 }
 
-fn gen_input_mask(len: u8) -> u8 {
+fn gen_input_mask(len: usize) -> usize {
   let mut mask = 0;
   for i in 0..len {
     mask |= 1 << i;

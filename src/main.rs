@@ -5,7 +5,7 @@ use std::io::Read;
 mod bitwise;
 
 struct Elem {
-  count: u32,
+  count: usize,
   character: char,
 }
 
@@ -33,7 +33,7 @@ fn main() {
     }
   };
 
-  let mut counts: [u32; 256] = [0; 256];
+  let mut counts: [usize; 256] = [0; 256];
   let mut input = Vec::new();
 
   for b in f.bytes() {
@@ -52,6 +52,10 @@ fn main() {
   find_lengths(&mut lengths);
   let code = len_to_codewords(&lengths, &alphabet);
 
+  for ref c in code.iter() {
+    println!("{:?}:\t{:4b} - {:?}", c.character, c.code, c.len);
+  }
+
   let out_f = match File::create("out.txt") {
     Ok(f) => f,
     Err(_) => {
@@ -64,8 +68,9 @@ fn main() {
   
   for b in input {
     let c = code.iter().find(|&word| word.character == b as char).unwrap();
-    output.write(c.code as u8, c.len as u8);      
+    output.write(c.code, c.len);
   }
+  println!("");
 
   output.flush();
 
@@ -77,8 +82,44 @@ fn main() {
     }
   };
 
-  let reader = bitwise::Reader::new(Box::new(in_f));
+  let mut reader = bitwise::Reader::new(Box::new(in_f));
+  let mut read_values = Vec::new();
+  for &len in lengths.iter().rev() {
+    match read_values.iter().find(|&&x| x == len) {
+      None => read_values.push(len),
+      Some(_) => {}
+    };
+  }
 
+  let mut res = String::new();
+  let mut done = false;
+  while !done {
+    let mut last_len = 0;
+    let mut x = 0;
+    for &len in read_values.iter() {
+      x = match reader.read(len - last_len) {
+        Ok(v) => {
+          (x << (len - last_len)) | v
+        },
+        Err(_) => {
+          done = true;
+          break
+        }
+      };
+
+      match code.iter().find(|&c| c.code == x as usize) {
+        Some(c) => {
+          res.push(c.character);
+          break
+        },
+        None => {
+          last_len = len;
+        }
+      };
+    }
+  }
+
+  println!("{:?}", res);
 }
 
 
@@ -130,7 +171,6 @@ fn find_lengths(data: &mut [usize]) {
     //     let h = temp;
     //     temp = data[i];
     //     data[i] = h; 
-
     //     if ris.len() > 0 {
     //       for &j in ris.iter() {
     //         data[j] = i;
