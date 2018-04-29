@@ -113,11 +113,6 @@ fn compress(input_file : File, mut output_file: File) {
   alphabet.sort_by(|a, b| b.count.cmp(&a.count));
 
   let code = len_to_codewords(&alphabet);
-
-  for c in code.iter() {
-    println!("{:?}:\t{:0len$b} - {len}", c.character, c.code, len=c.len);
-  }
-
   for index in 0..257 {
     let c = match code.iter().find(|&word| word.character == index) {
       Some(c) => c.len,
@@ -157,15 +152,7 @@ fn decompress(input_file: File, mut output_file: File) {
   alphabet.sort_by(|a, b| a.character.cmp(&b.character));
   alphabet.sort_by(|a, b| b.count.cmp(&a.count));
 
-  // for a in alphabet.iter() {
-  //   println!("{:?}:  {:?}", a.character, a.count);
-  // }
-
   let code = len_to_codewords(&alphabet);
-
-  for c in code.iter() {
-    println!("{:?}:\t{:0len$b} - {len}", c.character, c.code, len=c.len);
-  }
 
   let mut reader = bitwise::Reader::new(bytes);
   let mut read_values : BTreeMap<usize, Vec<CodeWord>> = BTreeMap::new();
