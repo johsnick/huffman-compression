@@ -1,8 +1,9 @@
 use std::io::Write;
-use std::io::Read;
 use std::io::Bytes;
 use std::boxed::Box;
 use std::mem::size_of;
+use std::mem::transmute;
+use std::fs::File;
 
 pub struct Writer {
   pub buffer: usize,
@@ -14,7 +15,7 @@ impl Writer {
   pub fn new(f: Box<Write>) -> Writer {
     Writer {
       output: f,
-      index: size_of::<usize>() as isize,
+      index: (size_of::<usize>() * 8)as isize,
       buffer: 0
     }
   }
@@ -33,8 +34,16 @@ impl Writer {
   }
 
   pub fn flush(&mut self) {
-    let i = self.index;
-    self.write(0, i as usize);
+    let temp : [u8; size_of::<usize>()] = unsafe { transmute(self.buffer.to_be()) };
+    let bytes_to_write = ((size_of::<usize>() * 8) - self.index as usize) / 8;
+    if ((size_of::<usize>() * 8) - self.index as usize) % 8 == 0 {
+      self.output.write(&temp[0..bytes_to_write]).unwrap();
+    } else {
+      self.output.write(&temp[0..(bytes_to_write + 1)]).unwrap();
+    }
+
+    self.buffer = 0;
+    self.index = (size_of::<usize>() * 8) as isize;
   }
 
   fn update_buffer(&mut self, input: usize, len: usize) {
@@ -47,11 +56,7 @@ impl Writer {
   }
 
   fn write_to_file(&mut self) {
-    let mut temp = [0u8; 64];
-    for i in 0..size_of::<usize>() {
-      let mask = 0xff << (i * 8);
-      temp[i] = ((mask & self.buffer) >> (i * 8)) as u8;
-    }
+    let temp : [u8; size_of::<usize>()] = unsafe { transmute(self.buffer.to_be()) };
     self.output.write(&temp).unwrap();
     self.buffer = 0;
     self.index = (size_of::<usize>() * 8) as isize;
@@ -62,13 +67,13 @@ impl Writer {
 pub struct Reader {
   pub buffer: usize,
   index: isize,
-  input: Bytes<Box<Read>>,
+  input: Bytes<Box<File>>,
 }
 
 impl Reader{
-  pub fn new(f: Box<Read>) -> Reader {
+  pub fn new(f: Bytes<Box<File>>) -> Reader {
     Reader {
-      input: f.bytes(),
+      input: f,
       index: 0,
       buffer: 0,
     }
@@ -88,9 +93,10 @@ impl Reader{
         Err(_) => return Err(()),
         Ok(_) => {}
       };
-      result |= self.buffer >> (size_of::<usize>() - low_len);
-      self.index = size_of::<usize>() as isize - low_len as isize;
+      result |= self.buffer >> (self.index - low_len as isize);
+      self.index -= low_len as isize;
     }
+
 
     Ok(result)
   }
@@ -102,10 +108,19 @@ impl Reader{
         Some(x) => {
           self.buffer |= (x.unwrap() as usize) << (i * 8)
         },
-        None => return Err(())
+        None => {
+          if i != size_of::<usize>() - 1 {
+            self.buffer >>= (i + 1) * 8;
+            self.index = ((size_of::<usize>() - i - 1) as usize) as isize * 8;
+            return Ok(());
+          } else {
+            return Err(());
+          }
+        }
       }
     }
 
+    self.index = 8 * size_of::<usize>() as isize;
     Ok(())
   }
 }
@@ -143,20 +158,6 @@ fn test_gen_input_mask() {
 fn gen_input_mask(len: usize) -> usize {
   let mut mask = 0;
   for i in 0..len {
-    mask |= 1 << i;
-  }
-
-  mask
-}
-
-#[test]
-fn test_gen_buffer_mask() {
-  assert_eq!(gen_buffer_mask(4), 240);
-}
-
-fn gen_buffer_mask(index: i8) -> u8 {
-  let mut mask = 0;
-  for i in index..8 {
     mask |= 1 << i;
   }
 
