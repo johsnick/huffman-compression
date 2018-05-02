@@ -29,6 +29,7 @@ fn main() {
   let mut opts = Options::new();
   opts.optflag("c", "compress", "save compressed input file at output file");
   opts.optflag("d", "decompress", "save decompressed input file at output file");
+  opts.optflag("o", "dictionary", "write the code words");
   opts.optflag("h", "help", "display this stuff");
   let matches = match opts.parse(&args[1..]) {
       Ok(m) => { m }
@@ -44,7 +45,7 @@ fn main() {
 
   if matches.opt_present("c") && matches.opt_present("d") {
     command_line_msg(&program, &opts);
-  } else if !matches.opt_present("c") && !matches.opt_present("d") {
+  } else if !matches.opt_present("c") && !matches.opt_present("d") && !matches.opt_present("o"){
     command_line_msg(&program, &opts);
   }
 
@@ -72,13 +73,15 @@ fn main() {
     compress(input_file, output_file);
   } else if matches.opt_present("d") {
     decompress(input_file, output_file);
+  } else if matches.opt_present("o") {
+    dictionary(input_file, output_file);
   } else {
     println!("must specify compress or decompress");
   }
 }
 
 fn command_line_msg(program : &String, opts : &Options) {
-  let brief = format!("usage: {} [ -c | -d ] <input_file> <output_file>", program);
+  let brief = format!("usage: {} [ -c | -d | -o] <input_file> <output_file>", program);
   println!("{}", opts.usage(&brief));
   exit(1);
 }
@@ -211,6 +214,41 @@ fn decompress(input_file: File, mut output_file: File) {
   println!("Writing Decompressed File");
 
   output_file.write(&res).unwrap();
+}
+
+fn dictionary(input_file: File, mut output_file: File) {
+  let mut counts: [usize; 256] = [0; 256];
+  let mut input = Vec::new();
+
+  for b in input_file.bytes() {
+    let byte = b.unwrap();
+    counts[byte as usize] += 1;
+    input.push(byte as usize);
+  }
+
+  let mut alphabet: Vec<Elem> = (0..256).zip(counts.iter())
+    .map(|(a, &b)| Elem {count: b, character: a} )
+    .filter(|a| a.count != 0)
+    .collect();
+
+  alphabet.push(Elem {count: 1, character: 256});
+
+  alphabet.sort_by(|a, b| b.count.cmp(&a.count));
+
+  let mut lengths : Vec<_> = alphabet.iter().map(|e| e.count as usize).collect();
+  find_lengths(&mut lengths);
+
+  for (a, l) in alphabet.iter_mut().rev().zip(lengths) {
+    a.count = l;
+  }
+
+  alphabet.sort_by(|a, b| a.character.cmp(&b.character));
+  alphabet.sort_by(|a, b| b.count.cmp(&a.count));
+
+  let code = len_to_codewords(&alphabet);
+  for c in code {
+    writeln!(output_file, "{:3}: {:0len$b}", c.character, c.code, len = c.len).unwrap();
+  }
 }
 
 #[test]
